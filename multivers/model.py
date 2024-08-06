@@ -17,6 +17,8 @@ from allennlp_feedforward import FeedForward
 from metrics import SciFactMetrics
 
 import util
+import json
+import os
 
 
 def masked_binary_cross_entropy_with_logits(input, target, weight, rationale_mask):
@@ -191,6 +193,16 @@ class MultiVerSModel(pl.LightningModule):
         pooled_output = self.dropout(encoded.pooler_output)
         # [n_documents x n_labels]
         label_logits = self.label_classifier(pooled_output)
+
+        data = {
+            "pooled_output": pooled_output.tolist(),
+            "----------------------"
+            "label_logits": label_logits.tolist(),
+        }
+
+        with open("temp.json", "w") as f:
+            json.dump(data, f, indent=4)
+
 
         # Predict labels.
         # [n_documents]

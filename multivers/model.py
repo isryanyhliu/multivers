@@ -186,22 +186,20 @@ class MultiVerSModel(pl.LightningModule):
         The `abstract_sent_idx` gives the indices of the `</s>` tokens being
         used to represent each sentence in the abstract.
         """
+        # 将claim和sentence一起编码，这样可以利用transformer的全局上下文编码能力，使得claim和sentence的信息在编码过程中相互影响
+        # 包括隐藏状态（last_hidden_state）和池化输出（pooler_output）
         # Encode.
-        encoded = self.encoder(**tokenized)
+        encoded = self.encoder(**tokenized) 
 
+
+        # 池化操作主要代表了整个输入序列的全局特征。虽然它包括了claim和所有句子的全局表示，但在实践中，它往往更能代表claim的全局特征。
         # Make label predictions.
         pooled_output = self.dropout(encoded.pooler_output)
+
+
+        # 通过全连接层将claim的特征表示映射到label空间
         # [n_documents x n_labels]
         label_logits = self.label_classifier(pooled_output)
-
-        data = {
-            "pooled_output": pooled_output.tolist(),
-            "----------------------"
-            "label_logits": label_logits.tolist(),
-        }
-
-        with open("temp.json", "w") as f:
-            json.dump(data, f, indent=4)
 
 
         # Predict labels.
@@ -218,23 +216,42 @@ class MultiVerSModel(pl.LightningModule):
             label_probs_truncated[:, self.nei_label] = self.label_threshold
             predicted_labels = label_probs_truncated.argmax(dim=1)
 
+        
+
+        # 隐藏状态, 获取每个句子的表示
         # Make rationale predictions
         # Need to invoke `continguous` or `batched_index_select` can fail.
         hidden_states = self.dropout(encoded.last_hidden_state).contiguous()
-        sentence_states = batched_index_select(hidden_states, abstract_sent_idx)
+        sentence_states = batched_index_select(hidden_states, abstract_sent_idx) # 使用batched_index_select函数从模型编码后的结果中提取每个句子的细粒度表示。这些表示保留了每个句子的详细信息。
 
+
+        # 拼接操作，将claim的全局特征表示与每个句子的表示拼接在一起
         # Concatenate the CLS token with the sentence states.
-        pooled_rep = pooled_output.unsqueeze(1).expand_as(sentence_states)
+        pooled_rep = pooled_output.unsqueeze(1).expand_as(sentence_states) # 将claim的全局特征表示扩展到与每个句子的表示相同的维度
         # [n_documents x max_n_sentences x (2 * encoder_hidden_dim)]
-        rationale_input = torch.cat([pooled_rep, sentence_states], dim=2)
+        rationale_input = torch.cat([pooled_rep, sentence_states], dim=2) # 将claim的全局特征表示与每个句子的表示拼接在一起
         # Squeeze out dim 2 (the encoder dim).
         # [n_documents x max_n_sentences]
-        rationale_logits = self.rationale_classifier(rationale_input).squeeze(2)
+        rationale_logits = self.rationale_classifier(rationale_input).squeeze(2) # 通过全连接层将claim的全局特征表示与每个句子的表示拼接在一起，然后映射到rationale空间
 
         # Predict rationales.
         # [n_documents x max_n_sentences]
-        rationale_probs = torch.sigmoid(rationale_logits).detach()
-        predicted_rationales = (rationale_probs >= self.rationale_threshold).to(torch.int64)
+        rationale_probs = torch.sigmoid(rationale_logits).detach() # 通过sigmoid函数将rationale_logits映射到[0,1]之间
+        predicted_rationales = (rationale_probs >= self.rationale_threshold).to(torch.int64) # 通过rationale_threshold将rationale_probs映射到{0,1}之间
+
+
+        data = {
+            "------ Claim 表示 池化 -----"
+            "pooled_output": pooled_output.shape,
+            "----- Sentence 表示 -----"
+            "last_hidden_state": encoded.last_hidden_state.shape,
+            "----- 联合 Rationale 表示 -----"
+            "rationale_input": rationale_input.shape,
+        }
+
+        with open("temp.json", "w") as f:
+            json.dump(data, f, indent=4)
+
 
         return {"label_logits": label_logits,
                 "rationale_logits": rationale_logits,

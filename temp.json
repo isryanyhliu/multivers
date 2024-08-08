@@ -1,0 +1,16 @@
+{
+    "------ Claim \u8868\u793a \u6c60\u5316 -----pooled_output": [
+        1,
+        1024
+    ],
+    "----- Sentence \u8868\u793a -----last_hidden_state": [
+        1,
+        294,
+        1024
+    ],
+    "----- \u8054\u5408 Rationale \u8868\u793a -----rationale_input": [
+        1,
+        7,
+        2048
+    ]
+}
